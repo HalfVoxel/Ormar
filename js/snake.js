@@ -28,10 +28,10 @@ Vector.prototype.same = function(t) {
 };
 
 var delta = [
-	new Vector(0, 1),
 	new Vector(1, 0),
 	new Vector(0, -1),
-	new Vector(-1, 0)
+	new Vector(-1, 0),
+	new Vector(0, 1)
 ];
 
 var Map = function(name, width, height, obstacles) {
@@ -239,6 +239,9 @@ Board.prototype.isObstacle = function(coordinate) {
 var TILE_SIZE = 20;
 
 var Renderer = function(canvasId, game) {
+	this.targetRotation = 0;
+	this.currentRotation = 0;
+	this.rotationSpeed = 1;
 	this.canvasId = canvasId;
 	this.game = game;
 	this.tileSize = TILE_SIZE;
@@ -286,15 +289,62 @@ CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
 	return this;
 };
 
+Renderer.prototype.transformContext = function(ctx){
+	ctx.translate(+this.game.board.width*TILE_SIZE/2, +this.game.board.height*TILE_SIZE/2);
+	ctx.rotate((this.currentRotation-90)*2*Math.PI / 360);
+	ctx.translate(-(this.game.snake.segments[0].x+0.5)*TILE_SIZE, -(this.game.snake.segments[0].y+0.5)*TILE_SIZE);
+};
+
+Renderer.prototype.deltaAngle = function(a1, a2) {
+	while(a1 < 0) a1 += 360;
+	while(a2 < 0) a2 += 360;
+	while(a1 > 360) a1 -= 360;
+	while(a2 > 360) a2 -= 360;
+
+	/*if (a2 < a1) {
+		var tmp = a2;
+		a2 = a1;
+		a1 = tmp;
+	}*/
+	if (a2 - a1 > 180) {
+		return (a2  - (a1+360));
+	} else if (a2 - a1 < -180) {
+		return -(a2+360 - a1);
+	} else {
+		return a2-a1;
+	}
+};
 Renderer.prototype.render = function(deltaTime) {
 	var ctx = this.canvas.getContext('2d');
 	var bgCtx = this.backgroundCanvas.getContext('2d');
 	var game = this.game;
+
+	this.currentRotation = this.currentRotation + this.deltaAngle (this.currentRotation, this.targetRotation)*Util.clamp(0,1,(deltaTime*0.001)*this.rotationSpeed);
+	this.currentRotation = (this.currentRotation + 360) % 360;
+
+	//this.currentRotation += 0.05;
+	console.log(this.currentRotation*2*Math.PI / 360);
+	bgCtx.save();
+
+	this.transformContext(bgCtx);
 	this.renderSnake(bgCtx, game, deltaTime);
+
+	
+	
 	this.renderBackground(bgCtx, game, deltaTime);
+
+	bgCtx.restore();
 	this.clearCanvas (ctx, game);
+
+	ctx.save();
+	this.transformContext(ctx);
+
 	this.renderBoard(ctx, game, deltaTime);
 	this.renderFood(ctx, game, deltaTime);
+
+	
+	
+	ctx.restore();
 	this.renderMeter(ctx, game, deltaTime);
 	this.lastRender = Date.now();
 };
@@ -302,6 +352,8 @@ Renderer.prototype.render = function(deltaTime) {
 Renderer.prototype.renderConsumeEffect = function(ctx, food) {
 
 	ctx.save();
+	this.transformContext(ctx);
+
 	ctx.fillStyle = "hsl(" + food.type.hue + ", 100%, 50%)";
 
 	var rad = TILE_SIZE*1.2;
@@ -473,6 +525,7 @@ Game.prototype.getFood = function(coordinate) {
 	return -1;
 };
 
+var foodcount = 0;
 Game.prototype.newFood = function(type) {
 	var vec = new Vector(0, 0);
 	do {
@@ -484,6 +537,9 @@ Game.prototype.newFood = function(type) {
 };
 
 Game.prototype.update = function() {
+
+	this.snake.alwaysShow = 100000;
+
 	//Consume input
 	if (this.input.isLeft) {
 		this.snake.turn(1);
@@ -493,6 +549,9 @@ Game.prototype.update = function() {
 		this.snake.turn(-1);
 		this.input.isRight = false;
 	}
+	this.renderer.rotationSpeed = (this.renderer.lastRender-this.input.lastAction) > 3000 ? 1 : 0.01;
+	this.renderer.targetRotation = 90*this.snake.direction;
+
 	this.snake.alwaysShow = Math.max(this.snake.alwaysShow - this.tickSpeed, 0);
 	var newHead = this.snake.getNext();
 	for (var i = 0; i < this.foods.length; ++i) {
@@ -584,6 +643,7 @@ var LEFT_ARROW = 37;
 var RIGHT_ARROW = 39;
 
 var Input = function() {
+	this.lastAction = -9999;
 	this.leftCode = LEFT_ARROW;
 	this.rightCode = RIGHT_ARROW;
 	this.isLeft = false;
@@ -600,9 +660,11 @@ Input.prototype.keyDown = function(key) {
 	switch (key) {
 		case this.leftCode:
 			this.isLeft = true;
+			this.lastAction = Date.now();
 			return true;
 		case this.rightCode:
 			this.isRight = true;
+			this.lastAction = Date.now();
 			return true;
 	}
 	return false;
